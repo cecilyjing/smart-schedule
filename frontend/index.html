@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Schedule</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial;
+      margin: 20px;
+    }
+
+    #calendar {
+      max-width: 1000px;
+      margin: auto;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>📅 Smart Schedule</h2>
+<div id="calendar"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+  // 🔔 通知權限
+  if (Notification.permission !== "granted") {
+    Notification.requestPermission();
+  }
+
+  function notify(title) {
+    if (Notification.permission === "granted") {
+      new Notification("🔔 行程提醒", {
+        body: title
+      });
+    }
+  }
+
+  const calendar = new FullCalendar.Calendar(
+    document.getElementById('calendar'),
+    {
+
+      initialView: 'dayGridMonth',
+
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+      },
+
+      selectable: true,
+
+      // 📌 讀取資料
+      events: "http://10.41.158.18:3000/events",
+
+      // ➕ 新增行程
+      select: function(info) {
+
+        const title = prompt("請輸入行程名稱");
+        if (!title) return;
+
+        fetch("http://10.41.158.18:3000/events", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            title,
+            start: info.startStr,
+            end: info.endStr
+          })
+        }).then(() => calendar.refetchEvents());
+
+      },
+
+      // ✏️ 修改 / ❌ 刪除（升級版 UI）
+      eventClick: function(info) {
+
+        // 🌑 遮罩
+        const overlay = document.createElement("div");
+        overlay.style.position = "fixed";
+        overlay.style.top = 0;
+        overlay.style.left = 0;
+        overlay.style.width = "100%";
+        overlay.style.height = "100%";
+        overlay.style.background = "rgba(0,0,0,0.4)";
+        overlay.style.display = "flex";
+        overlay.style.justifyContent = "center";
+        overlay.style.alignItems = "center";
+        overlay.style.zIndex = 9999;
+
+        // 🪟 視窗
+        const box = document.createElement("div");
+        box.style.background = "white";
+        box.style.padding = "20px";
+        box.style.borderRadius = "10px";
+        box.style.width = "280px";
+        box.style.textAlign = "center";
+
+        box.innerHTML = `
+          <h3>📌 行程操作</h3>
+          <p>${info.event.title}</p>
+
+          <button id="editBtn" style="margin:5px;padding:8px 12px;">✏️ 修改</button>
+          <button id="deleteBtn" style="margin:5px;padding:8px 12px;background:red;color:white;">🗑 刪除</button>
+          <br><br>
+          <button id="closeBtn">關閉</button>
+        `;
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        // ❌ 關閉
+        document.getElementById("closeBtn").onclick = () => {
+          overlay.remove();
+        };
+
+        // ✏️ 修改
+        document.getElementById("editBtn").onclick = async () => {
+
+          const newTitle = prompt("新的行程名稱", info.event.title);
+          if (!newTitle) return;
+
+          await fetch(`http://10.41.158.18:3000/events/${info.event.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              title: newTitle,
+              start: info.event.startStr,
+              end: info.event.endStr
+            })
+          });
+
+          overlay.remove();
+          calendar.refetchEvents();
+        };
+
+        // ❌ 刪除
+        document.getElementById("deleteBtn").onclick = async () => {
+
+          if (!confirm("確定要刪除這個行程嗎？")) return;
+
+          await fetch(`http://10.41.158.18:3000/events/${info.event.id}`, {
+            method: "DELETE"
+          });
+
+          overlay.remove();
+          calendar.refetchEvents();
+        };
+
+      }
+
+    }
+  );
+
+  calendar.render();
+
+  // 🔔 提醒系統（防重複升級版）
+  let notifiedEvents = new Set();
+
+  setInterval(() => {
+
+    fetch("http://10.41.158.18:3000/events")
+      .then(res => res.json())
+      .then(events => {
+
+        const now = new Date();
+
+        events.forEach(e => {
+
+          const eventTime = new Date(e.start);
+          const diff = (eventTime - now) / 60000;
+
+          const key = e.id + e.start;
+
+          if (diff > 0 && diff <= 10 && !notifiedEvents.has(key)) {
+            notify(e.title);
+            notifiedEvents.add(key);
+          }
+
+        });
+
+      });
+
+  }, 300000);
+
+});
+</script>
+
+</body>
+</html>
